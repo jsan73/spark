@@ -225,6 +225,10 @@ public class RecommGoods {
 					OrderInfoModel pharmacyInfo = lookupPharmacy(arg0._1(), bPharmacy.value());
 					if(pharmacyInfo != null) {
 						save_goods.setPharmacyName(pharmacyInfo.getPharmacyName() + "(" + arg0._1() + ")");
+						save_goods.setPharmacyAddr(pharmacyInfo.getPharmacyAddr());
+						save_goods.setPharmacySido(pharmacyInfo.getPharmacySido());
+						save_goods.setPharmacyGugun(pharmacyInfo.getPharmacyGugun());        	
+						save_goods.setPharmacyDong(pharmacyInfo.getPharmacyDong());        	
 					}			
 					return save_goods;
 				}
