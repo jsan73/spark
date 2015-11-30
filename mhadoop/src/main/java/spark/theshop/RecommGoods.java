@@ -209,30 +209,6 @@ public class RecommGoods {
 	    });
 	    JavaEsSpark.saveToEs(recommSaveRDD, "/theshop-recommend-user/goods",ImmutableMap.of("es.mapping.id", "userKey") );
 	    
-	    //<<Integer,Integer>,Double> to <Integer,<Integer,Double>>
-	    /* 
-	    JavaPairRDD<Integer, Tuple2<String, Double>> userPredictions = JavaPairRDD.fromJavaRDD(predictions.map(
-	            new Function<Tuple2<Tuple2<Integer, Integer>, Double>, Tuple2<Integer, Tuple2<String, Double>>>() {
-	                public Tuple2<Integer, Tuple2<String, Double>> call(Tuple2<Tuple2<Integer, Integer>, Double> v1) throws Exception {
-	                	System.out.println(goodsMap.get(v1._1()._2().toString()));
-	                    return new Tuple2<Integer, Tuple2<String, Double>>(v1._1()._1(), new Tuple2<String, Double>(goodsMap.get(v1._1()._2().toString()), v1._2()));
-	                }
-	            }
-	    ));
-	     
-	    //Sort by key & Save
-	    //userPredictions.sortByKey(true).saveAsTextFile("/home/hadoop/recommend.txt");
-	  
-	    JavaPairRDD<IntWritable, MyWritable> userPredictions = JavaPairRDD.fromJavaRDD(predictions.map(
-	            new Function<Tuple2<Tuple2<Integer, Integer>, Double>, Tuple2<IntWritable, MyWritable>>() {
-	                public Tuple2<IntWritable, MyWritable> call(Tuple2<Tuple2<Integer, Integer>, Double> v1) throws Exception {
-	                    return new Tuple2<IntWritable, MyWritable>(new IntWritable(v1._1()._1()), new MyWritable(new Tuple2<String, Double>(goodsMap.get(v1._1()._2().toString()), v1._2())));
-	                }
-	            }
-	    ));
-	    */
-	    //userPredictions.saveAsNewAPIHadoopFile(HDFS_URL + "/spark/theshop/recommend/201510", IntWritable.class,  MyWritable.class, SequenceFileOutputFormat.class);
-	    
 	    
 		sc.stop();
 	}
