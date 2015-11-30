@@ -54,10 +54,16 @@ public class RecommGoods {
 		}
 	}
 	
+	static class SelectLocation implements Function<OrderInfoModel, Boolean> {
+		private String location;
+		public SelectLocation(String location) {this.location = location;}
+		public Boolean call(OrderInfoModel x) {
+			if(location.equals(x.getPharmacySido() + "|" + x.getPharmacyGugun())) return true;
+			else return false;
+		}
+	}	
 	
 	final static String HDFS_URL = "hdfs://elastic:9000";
-	
-
 	
 	 // 메인
 	public static void main(String[] args) throws Exception {
@@ -85,6 +91,13 @@ public class RecommGoods {
 			public OrderInfoModel call(String s) {
 				String[] orderData = s.split("\\^");
 				OrderInfoModel orderInfo = new OrderInfoModel();
+				
+				OrderInfoModel pharmacyInfo = lookupPharmacy(orderData[2], bPharmacy.value());
+				if(pharmacyInfo != null) {
+					orderInfo.setPharmacySido(pharmacyInfo.getPharmacySido());
+					orderInfo.setPharmacyGugun(pharmacyInfo.getPharmacyGugun());        	
+
+				}
 				orderInfo.setUserKey(orderData[2]);
 				orderInfo.setOrderQty((int) Double.parseDouble(orderData[4]));
 				orderInfo.setGoodsCd(orderData[7].toString());
@@ -96,7 +109,7 @@ public class RecommGoods {
 
 		
 		
-		// 구매 횟수 및 갯수에 따른 점수 합산(userkey||상품)
+		/////////////////////// 상품 데이터 추출 start ///////////////////////
 	    JavaPairRDD<String, String> goodsPairs = orderRDD.mapToPair(new PairFunction<OrderInfoModel, String, String>() {
 			public Tuple2<String, String> call(OrderInfoModel arg0) throws Exception {
 				return new Tuple2<String, String>(arg0.getGoodsCd(), arg0.getGoodsNm());
@@ -106,108 +119,118 @@ public class RecommGoods {
 	    List <Tuple2<String, String>> goodsList = goodsPairs.collect();
 	    final Map<String, String> goodsMap = new HashMap<String, String>();
 	    for(Tuple2<String, String> i : goodsList) goodsMap.put(i._1, i._2);
+	    /////////////////////// 상품 데이터 추출 end /////////////////////////
 	    
-		
-		// 구매 횟수 및 갯수에 따른 점수 합산(userkey||상품)
-	    JavaPairRDD<String, Double> userGoodsPairs = orderRDD.mapToPair(new PairFunction<OrderInfoModel, String, Double>() {
-			public Tuple2<String, Double> call(OrderInfoModel arg0) throws Exception {
-				return new Tuple2<String, Double>(arg0.getUserKey() + "^" + arg0.getGoodsCd(), 1.0 * arg0.getOrderQty());
-			}
-	    });
-
-	    JavaPairRDD<String, Double> orderCount = userGoodsPairs.reduceByKey(new Function2<Double, Double, Double>() {
-	      public Double call(Double n1, Double n2) throws Exception {
-	        return (n1 + n2);
-	      }
-	    });
 	    
-	    orderCount.persist(StorageLevel.DISK_ONLY());
+		/////////////////////// 위치 데이터 추출 start ///////////////////////
+	    List <String> locationList = orderRDD.mapToPair(new PairFunction<OrderInfoModel, String, Integer>() {
+		public Tuple2<String, Integer> call(OrderInfoModel arg0) throws Exception {
+			return new Tuple2<String, Integer>(arg0.getPharmacySido() + "|" + arg0.getPharmacyGugun(), 1);
+		}
+		}).distinct().keys().collect();
+		/////////////////////// 위치 데이터 추출 end /////////////////////////
 	    
-	    // 추천 데이터 생성
-	    JavaRDD<String> data = orderCount.map(new Function<Tuple2<String, Double>, String>() {
-
-			public String call(Tuple2<String, Double> arg0) throws Exception {
-				// TODO Auto-generated method stub
-				return arg0._1() + "^" + arg0._2();
-			}
+	    for(String loc : locationList) {
+	    	JavaRDD<OrderInfoModel> locOrderRDD = orderRDD.filter(new SelectLocation(loc));
 	    	
-	    });
-	    
-	    
-	    // Rating Data 생성
-	    JavaRDD<Rating> ratings = data.map(new Function<String, Rating>() {
-	    	public Rating call(String s) {
-	    		String[] sarray = s.split("\\^");
-	    		if(sarray.length == 3)
-	    			return new Rating(Integer.parseInt(sarray[0]), Integer.parseInt(sarray[1]), (float) Double.parseDouble(sarray[2]));
-	    		else return null;
-	    	}
-	    });
-	    
-	 // Build the recommendation model using ALS
-	    int rank = 10;
-	    int numIterations = 20;
-	    MatrixFactorizationModel model = ALS.train(JavaRDD.toRDD(ratings), rank, numIterations, 0.01);
+			// 구매 횟수 및 갯수에 따른 점수 합산(userkey||상품)
+		    JavaPairRDD<String, Double> userGoodsPairs = locOrderRDD.mapToPair(new PairFunction<OrderInfoModel, String, Double>() {
+				public Tuple2<String, Double> call(OrderInfoModel arg0) throws Exception {
+					return new Tuple2<String, Double>(arg0.getUserKey() + "^" + arg0.getGoodsCd(), 1.0 * arg0.getOrderQty());
+				}
+		    });
 
-	    // Evaluate the model on rating data
-	    JavaRDD<Tuple2<Object, Object>> userProducts = ratings.map(
-	            new Function<Rating, Tuple2<Object, Object>>() {
-	                public Tuple2<Object, Object> call(Rating r) {
-	                    return new Tuple2<Object, Object>(r.user(), r.product());
-	                }
-	            }
-	    );
-	    JavaPairRDD<Tuple2<Integer, Integer>, Double> predictions = JavaPairRDD.fromJavaRDD(
-	            model.predict(JavaRDD.toRDD(userProducts)).toJavaRDD().map(
-	                    new Function<Rating, Tuple2<Tuple2<Integer, Integer>, Double>>() {
-	                        public Tuple2<Tuple2<Integer, Integer>, Double> call(Rating r) {
-	                            return new Tuple2<Tuple2<Integer, Integer>, Double>(
-	                                    new Tuple2<Integer, Integer>(r.user(), r.product()), (double) r.rating());
-	                        }
-	                    }
-	            ));
+		    JavaPairRDD<String, Double> orderCount = userGoodsPairs.reduceByKey(new Function2<Double, Double, Double>() {
+		      public Double call(Double n1, Double n2) throws Exception {
+		        return (n1 + n2);
+		      }
+		    });
+		    
+		    orderCount.persist(StorageLevel.DISK_ONLY());
+		    
+		    // 추천 데이터 생성
+		    JavaRDD<String> data = orderCount.map(new Function<Tuple2<String, Double>, String>() {
 
-	    JavaRDD<RecommendGoodsModel> recommRDD = predictions.map(new Function<Tuple2<Tuple2<Integer, Integer>, Double>, RecommendGoodsModel>() {
+				public String call(Tuple2<String, Double> arg0) throws Exception {
+					// TODO Auto-generated method stub
+					return arg0._1() + "^" + arg0._2();
+				}
+		    	
+		    });
+		    
+		    
+		    // Rating Data 생성
+		    JavaRDD<Rating> ratings = data.map(new Function<String, Rating>() {
+		    	public Rating call(String s) {
+		    		String[] sarray = s.split("\\^");
+		    		if(sarray.length == 3)
+		    			return new Rating(Integer.parseInt(sarray[0]), Integer.parseInt(sarray[1]), (float) Double.parseDouble(sarray[2]));
+		    		else return null;
+		    	}
+		    });
+		    
+		 // Build the recommendation model using ALS
+		    int rank = 10;
+		    int numIterations = 20;
+		    MatrixFactorizationModel model = ALS.train(JavaRDD.toRDD(ratings), rank, numIterations, 0.01);
 
-			public RecommendGoodsModel call(Tuple2<Tuple2<Integer, Integer>, Double> v1) throws Exception {
-				// TODO Auto-generated method stub
-				RecommendGoodsModel model = new RecommendGoodsModel();
-				model.setUserKey(v1._1()._1().toString());
-				model.setGoodsCd(v1._1()._2().toString());
-				model.setGoodsNm(goodsMap.get(v1._1()._2().toString()));
-				model.setScore(v1._2());
-				model.setRecommDt("2015-10-01T12:00:00");
-				OrderInfoModel pharmacyInfo = lookupPharmacy(v1._1()._1().toString(), bPharmacy.value());
-				if(pharmacyInfo != null) {
-					model.setPharmacyName(pharmacyInfo.getPharmacyName() + "(" + v1._1()._1().toString() + ")");
-				}				
-				return model;
-			}
-	    	
-	    }); 
-	    	
-	    //JavaEsSpark.saveToEs(recommRDD, "/theshop-recommend/goods");
-	    
-	    
-	    JavaPairRDD<String,Iterable<Map<String, String>>> recommPairRDD = recommRDD.mapToPair(new PairFunction<RecommendGoodsModel, String, Map<String, String>>(){
-			public Tuple2<String, Map<String, String>> call(RecommendGoodsModel arg0) throws Exception {
-				return new Tuple2<String, Map<String, String>>(arg0.getUserKey(),ImmutableMap.of("goodsCd", arg0.getGoodsCd(), "goodsNm", arg0.getGoodsNm()));
-			}
-	    }).groupByKey(); 
-	    
-	    JavaRDD<RecommendSaveModel> recommSaveRDD =  recommPairRDD.map(new Function<Tuple2<String, Iterable<Map<String, String>>>, RecommendSaveModel>() {
+		    // Evaluate the model on rating data
+		    JavaRDD<Tuple2<Object, Object>> userProducts = ratings.map(
+		            new Function<Rating, Tuple2<Object, Object>>() {
+		                public Tuple2<Object, Object> call(Rating r) {
+		                    return new Tuple2<Object, Object>(r.user(), r.product());
+		                }
+		            }
+		    );
+		    JavaPairRDD<Tuple2<Integer, Integer>, Double> predictions = JavaPairRDD.fromJavaRDD(
+		            model.predict(JavaRDD.toRDD(userProducts)).toJavaRDD().map(
+		                    new Function<Rating, Tuple2<Tuple2<Integer, Integer>, Double>>() {
+		                        public Tuple2<Tuple2<Integer, Integer>, Double> call(Rating r) {
+		                            return new Tuple2<Tuple2<Integer, Integer>, Double>(
+		                                    new Tuple2<Integer, Integer>(r.user(), r.product()), (double) r.rating());
+		                        }
+		                    }
+		            ));
 
-			public RecommendSaveModel call(Tuple2<String, Iterable<Map<String, String>>> arg0) throws Exception {
-				// TODO Auto-generated method stub
-				RecommendSaveModel save_goods = new RecommendSaveModel();
-				
-				save_goods.setGoodsList(arg0._2());
-				save_goods.setUserKey(arg0._1());
-				save_goods.setRecommDt("2015-10-01T12:00:00");
-				return save_goods;
-			}
-	    });
-	    JavaEsSpark.saveToEs(recommSaveRDD, "/theshop-recommend-user/goods",ImmutableMap.of("es.mapping.id", "userKey") );
+		    JavaRDD<RecommendGoodsModel> recommRDD = predictions.map(new Function<Tuple2<Tuple2<Integer, Integer>, Double>, RecommendGoodsModel>() {
+
+				public RecommendGoodsModel call(Tuple2<Tuple2<Integer, Integer>, Double> v1) throws Exception {
+					// TODO Auto-generated method stub
+					RecommendGoodsModel model = new RecommendGoodsModel();
+					model.setUserKey(v1._1()._1().toString());
+					model.setGoodsCd(v1._1()._2().toString());
+					model.setGoodsNm(goodsMap.get(v1._1()._2().toString()));
+					model.setScore(v1._2());
+
+					return model;
+				}
+		    	
+		    }); 
+		    	
+		    JavaPairRDD<String,Iterable<Map<String, String>>> recommPairRDD = recommRDD.mapToPair(new PairFunction<RecommendGoodsModel, String, Map<String, String>>(){
+				public Tuple2<String, Map<String, String>> call(RecommendGoodsModel arg0) throws Exception {
+					return new Tuple2<String, Map<String, String>>(arg0.getUserKey(),ImmutableMap.of("goodsCd", arg0.getGoodsCd(), "goodsNm", arg0.getGoodsNm()));
+				}
+		    }).groupByKey(); 
+		    
+		    JavaRDD<RecommendSaveModel> recommSaveRDD =  recommPairRDD.map(new Function<Tuple2<String, Iterable<Map<String, String>>>, RecommendSaveModel>() {
+
+				public RecommendSaveModel call(Tuple2<String, Iterable<Map<String, String>>> arg0) throws Exception {
+					// TODO Auto-generated method stub
+					RecommendSaveModel save_goods = new RecommendSaveModel();
+					
+					save_goods.setGoodsList(arg0._2());
+					save_goods.setUserKey(arg0._1());
+					save_goods.setRecommDt("2015-10-01T12:00:00");
+					OrderInfoModel pharmacyInfo = lookupPharmacy(arg0._1(), bPharmacy.value());
+					if(pharmacyInfo != null) {
+						save_goods.setPharmacyName(pharmacyInfo.getPharmacyName() + "(" + arg0._1() + ")");
+					}			
+					return save_goods;
+				}
+		    });
+		    JavaEsSpark.saveToEs(recommSaveRDD, "/theshop-recommend-user/goods",ImmutableMap.of("es.mapping.id", "userKey") );
+	    }
 	    
 	    
 		sc.stop();

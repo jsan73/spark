@@ -7,6 +7,7 @@ public class RecommendSaveModel implements Serializable {
 	private String userKey;
 	private Iterable<Map<String, String>> goodsList;
 	private String recommDt;
+	private String pharmacyName;
 	public String getUserKey() {
 		return userKey;
 	}
@@ -25,5 +26,11 @@ public class RecommendSaveModel implements Serializable {
 	}
 	public void setGoodsList(Iterable<Map<String, String>> goodsList) {
 		this.goodsList = goodsList;
+	}
+	public String getPharmacyName() {
+		return pharmacyName;
+	}
+	public void setPharmacyName(String pharmacyName) {
+		this.pharmacyName = pharmacyName;
 	}
 }
