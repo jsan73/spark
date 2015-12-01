@@ -81,8 +81,8 @@ public class RecommGoods {
         		.set("es.batch.size.entries", "0");
 		
 		JavaSparkContext sc = new JavaSparkContext(sparkConf);
-		String startDt = "20151001000000";
-		String endDt = "20151031235959";
+		String startDt = "20151101000000";
+		String endDt = "20151131235959";
 
 		JavaRDD<String> orders = sc.textFile(args[0], 1).filter(new SelectData(startDt, endDt));
 
@@ -136,13 +136,13 @@ public class RecommGoods {
 			// 구매 횟수 및 갯수에 따른 점수 합산(userkey||상품)
 		    JavaPairRDD<String, Double> userGoodsPairs = locOrderRDD.mapToPair(new PairFunction<OrderInfoModel, String, Double>() {
 				public Tuple2<String, Double> call(OrderInfoModel arg0) throws Exception {
-					return new Tuple2<String, Double>(arg0.getUserKey() + "^" + arg0.getGoodsCd(), 1.0 * arg0.getOrderQty());
+					return new Tuple2<String, Double>(arg0.getUserKey() + "^" + arg0.getGoodsCd(), 0.5 * arg0.getOrderQty());
 				}
 		    });
 
 		    JavaPairRDD<String, Double> orderCount = userGoodsPairs.reduceByKey(new Function2<Double, Double, Double>() {
 		      public Double call(Double n1, Double n2) throws Exception {
-		        return (n1 + n2);
+		        return (n1 + n2) * 1.2;
 		      }
 		    });
 		    
@@ -197,19 +197,31 @@ public class RecommGoods {
 				public RecommendGoodsModel call(Tuple2<Tuple2<Integer, Integer>, Double> v1) throws Exception {
 					// TODO Auto-generated method stub
 					RecommendGoodsModel model = new RecommendGoodsModel();
+					model.setId(v1._1()._1().toString() + "|" + v1._1()._2().toString());
 					model.setUserKey(v1._1()._1().toString());
 					model.setGoodsCd(v1._1()._2().toString());
 					model.setGoodsNm(goodsMap.get(v1._1()._2().toString()));
 					model.setScore(v1._2());
-
+					model.setRecommDt("2015-11-01T12:00:00");
+					OrderInfoModel pharmacyInfo = lookupPharmacy(v1._1()._1().toString(), bPharmacy.value());
+					if(pharmacyInfo != null) {
+						model.setPharmacyName(pharmacyInfo.getPharmacyName() + "(" + v1._1()._1().toString() + ")");
+						model.setPharmacyAddr(pharmacyInfo.getPharmacyAddr());
+						model.setPharmacySido(pharmacyInfo.getPharmacySido());
+						model.setPharmacyGugun(pharmacyInfo.getPharmacyGugun());        	
+						model.setPharmacyDong(pharmacyInfo.getPharmacyDong());        	
+					}			
 					return model;
 				}
 		    	
 		    }); 
 		    	
+		    JavaEsSpark.saveToEs(recommRDD, "/theshop-recommend/goods",ImmutableMap.of("es.mapping.id", "id") );
+		    
 		    JavaPairRDD<String,Iterable<Map<String, String>>> recommPairRDD = recommRDD.mapToPair(new PairFunction<RecommendGoodsModel, String, Map<String, String>>(){
 				public Tuple2<String, Map<String, String>> call(RecommendGoodsModel arg0) throws Exception {
-					return new Tuple2<String, Map<String, String>>(arg0.getUserKey(),ImmutableMap.of("goodsCd", arg0.getGoodsCd(), "goodsNm", arg0.getGoodsNm()));
+					return new Tuple2<String, Map<String, String>>(arg0.getUserKey(),
+							ImmutableMap.of("goodsCd", arg0.getGoodsCd(), "goodsNm", arg0.getGoodsNm(), "score", arg0.getScore().toString()));
 				}
 		    }).groupByKey(); 
 		    
@@ -221,15 +233,8 @@ public class RecommGoods {
 					
 					save_goods.setGoodsList(arg0._2());
 					save_goods.setUserKey(arg0._1());
-					save_goods.setRecommDt("2015-10-01T12:00:00");
-					OrderInfoModel pharmacyInfo = lookupPharmacy(arg0._1(), bPharmacy.value());
-					if(pharmacyInfo != null) {
-						save_goods.setPharmacyName(pharmacyInfo.getPharmacyName() + "(" + arg0._1() + ")");
-						save_goods.setPharmacyAddr(pharmacyInfo.getPharmacyAddr());
-						save_goods.setPharmacySido(pharmacyInfo.getPharmacySido());
-						save_goods.setPharmacyGugun(pharmacyInfo.getPharmacyGugun());        	
-						save_goods.setPharmacyDong(pharmacyInfo.getPharmacyDong());        	
-					}			
+					save_goods.setRecommDt("2015-11-01T12:00:00");
+					
 					return save_goods;
 				}
 		    });
