@@ -39,9 +39,15 @@ import com.google.common.collect.Lists;
 import scala.Tuple2;
 import spark.OrderInfoModel;
 
-
+/*
+ * 지역별 추천 상품
+ * ./bin/spark-submit --class spark.theshop.RecommGoods --master local[1] ../mhadoop-0.0.1-SNAPSHOT.jar hdfs://elastic:9000/spark/theshop/order/part-m-2015.txt
+ */
 public class RecommGoods {
 	
+	/*
+	 * 일자별 필터링
+	 */
 	static class SelectData implements Function<String, Boolean> {
 		private String sDate;
 		private String eDate;
@@ -54,6 +60,9 @@ public class RecommGoods {
 		}
 	}
 	
+	/*
+	 * 지역별 필터링
+	 */
 	static class SelectLocation implements Function<OrderInfoModel, Boolean> {
 		private String location;
 		public SelectLocation(String location) {this.location = location;}
@@ -65,14 +74,12 @@ public class RecommGoods {
 	
 	final static String HDFS_URL = "hdfs://elastic:9000";
 	
-	 // 메인
 	public static void main(String[] args) throws Exception {
 		if (args.length < 1) {
 			System.err.println("Usage: Order <file>");
 			System.exit(1);
 		}
 
-		
 		SparkConf sparkConf = new SparkConf().setAppName("Theshop Order").setMaster("local[*]")
 				.set("es.nodes", "192.168.34.181")
         		.set("es.port", "9200")
@@ -86,6 +93,7 @@ public class RecommGoods {
 
 		JavaRDD<String> orders = sc.textFile(args[0], 1).filter(new SelectData(startDt, endDt));
 
+		// Hadoop File read RDD 생성
 		final Broadcast<Map<String, OrderInfoModel>> bPharmacy = sc.broadcast(loadPharmacyTable());
 		JavaRDD<OrderInfoModel> orderRDD = orders.map(new Function<String, OrderInfoModel>() {
 			public OrderInfoModel call(String s) {
@@ -106,8 +114,6 @@ public class RecommGoods {
 			}
 		});
 		orderRDD.persist(StorageLevel.DISK_ONLY());
-
-		
 		
 		/////////////////////// 상품 데이터 추출 start ///////////////////////
 	    JavaPairRDD<String, String> goodsPairs = orderRDD.mapToPair(new PairFunction<OrderInfoModel, String, String>() {
@@ -158,7 +164,6 @@ public class RecommGoods {
 		    	
 		    });
 		    
-		    
 		    // Rating Data 생성
 		    JavaRDD<Rating> ratings = data.map(new Function<String, Rating>() {
 		    	public Rating call(String s) {
@@ -174,7 +179,7 @@ public class RecommGoods {
 		    int numIterations = 20;
 		    MatrixFactorizationModel model = ALS.train(JavaRDD.toRDD(ratings), rank, numIterations, 0.01);
 
-		    // Evaluate the model on rating data
+		    // ALS rating data
 		    JavaRDD<Tuple2<Object, Object>> userProducts = ratings.map(
 		            new Function<Rating, Tuple2<Object, Object>>() {
 		                public Tuple2<Object, Object> call(Rating r) {
@@ -192,10 +197,10 @@ public class RecommGoods {
 		                    }
 		            ));
 
+		    // Elastic save data
 		    JavaRDD<RecommendGoodsModel> recommRDD = predictions.map(new Function<Tuple2<Tuple2<Integer, Integer>, Double>, RecommendGoodsModel>() {
 
 				public RecommendGoodsModel call(Tuple2<Tuple2<Integer, Integer>, Double> v1) throws Exception {
-					// TODO Auto-generated method stub
 					RecommendGoodsModel model = new RecommendGoodsModel();
 					model.setId(v1._1()._1().toString() + "|" + v1._1()._2().toString());
 					model.setUserKey(v1._1()._1().toString());
@@ -218,6 +223,7 @@ public class RecommGoods {
 		    	
 		    JavaEsSpark.saveToEs(recommRDD, "/theshop-recommend/goods",ImmutableMap.of("es.mapping.id", "id") );
 		    
+		    // user별 추천상품 그룹핑
 		    JavaPairRDD<String,Iterable<Map<String, String>>> recommPairRDD = recommRDD.mapToPair(new PairFunction<RecommendGoodsModel, String, Map<String, String>>(){
 				public Tuple2<String, Map<String, String>> call(RecommendGoodsModel arg0) throws Exception {
 					return new Tuple2<String, Map<String, String>>(arg0.getUserKey(),

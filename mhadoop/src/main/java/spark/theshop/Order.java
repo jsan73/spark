@@ -26,12 +26,14 @@ import org.elasticsearch.spark.rdd.api.java.JavaEsSpark;
 
 import spark.OrderInfoModel;
 
+/*
+ * 주문 상품 통계 데이터
+ *  ./bin/spark-submit --class spark.theshop.Order --master local[1] ../mhadoop-0.0.1-SNAPSHOT.jar hdfs://elastic:9000/spark/theshop/order/part-m-2015.txt
+ */
 public class Order {
-	
 	
 	final static String HDFS_URL = "hdfs://elastic:9000";
 
-	 // 메인
 	public static void main(String[] args) throws Exception {
 		if (args.length < 1) {
 			System.err.println("Usage: Order <file>");
@@ -75,8 +77,6 @@ public class Order {
 					
 				}
 				
-				
-				
 				OrderInfoModel pharmacyInfo = lookupPharmacy(orderData[2], bPharmacy.value());
 				if(pharmacyInfo != null) {
 					orderInfo.setPharmacyName(pharmacyInfo.getPharmacyName() + "(" + orderData[2] + ")");
@@ -87,7 +87,6 @@ public class Order {
 				}
 				orderInfo._id = orderData[0] + "|" + orderData[7];
 				orderInfo.setUserKey(orderData[2]);
-//				orderInfo.setPayForm(orderData[3]);
 				orderInfo.setGoodsNm(orderData[3]);
 				orderInfo.setOrderQty((int) Double.parseDouble(orderData[4]));
 				orderInfo.setSellerCd(orderData[5]);
